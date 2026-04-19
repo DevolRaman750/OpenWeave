@@ -1,1 +1,25 @@
 .venv/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Logs and local runtime outputs
+*.log
+*.out
+*.err
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local secrets (only the specific file requested)
+openweave-observabily/openweave-research/agents/agent-y/configs/.env

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from agents.brain import Brain, BrainAnalysis, BrainError
@@ -120,3 +124,86 @@ def _serialize_manifest(acm: CompatibilityManifest) -> str:
     """Serialize with aliases so JSON-LD keeps @context and @type intact."""
 
     return acm.model_dump_json(by_alias=True)
+
+
+def _read_payload(payload_path: Path) -> dict[str, Any]:
+    """Load and validate a JSON payload file for CLI execution."""
+
+    try:
+        with payload_path.open("r", encoding="utf-8-sig") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError as exc:
+        raise ValueError(f"Payload file was not found: {payload_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Payload file is not valid JSON: {payload_path}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("Payload JSON root must be an object.")
+    return payload
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run Agent-X against a trace payload JSON file.",
+    )
+    parser.add_argument(
+        "--payload",
+        required=True,
+        help="Path to trace payload JSON (for example: trace_2.json).",
+    )
+    parser.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Pretty-print ACM JSON output.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable INFO logs while running the pipeline.",
+    )
+    return parser
+
+
+def _hydrate_github_pat(payload: dict[str, Any]) -> dict[str, Any]:
+    """Use environment PAT when payload contains a mock or missing PAT value."""
+
+    hydrated = dict(payload)
+    current_pat = hydrated.get("github_pat")
+    env_pat = os.getenv("GITHUB_PAT")
+
+    is_placeholder = not isinstance(current_pat, str) or not current_pat.strip()
+    if isinstance(current_pat, str):
+        normalized = current_pat.strip().lower()
+        is_placeholder = is_placeholder or normalized.startswith("ghp_mock")
+
+    if is_placeholder and env_pat:
+        hydrated["github_pat"] = env_pat
+
+    return hydrated
+
+
+def _main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s %(name)s - %(message)s",
+    )
+
+    try:
+        payload = _read_payload(Path(args.payload))
+        payload = _hydrate_github_pat(payload)
+        acm_json = asyncio.run(process_trace(payload))
+        if args.pretty:
+            print(json.dumps(json.loads(acm_json), indent=2))
+        else:
+            print(acm_json)
+        return 0
+    except (ProcessTraceError, ValueError) as exc:
+        logger.error(str(exc))
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

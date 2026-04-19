@@ -1,0 +1,16 @@
+{
+  "trace_id": "err_003_loop",
+  "github_pat": "ghp_mock_key_for_test",
+  "repository": "https://github.com/DevolRaman750/target_agent_test",
+  "commit_id": "main",
+  "code_location": {
+    "filepath": "target_agent.py",
+    "lineno": 32,
+    "function": "should_continue"
+  },
+  "error_context": {
+    "type": "EfficiencyError",
+    "message": "Agent reached max iterations without state change",
+    "loop_count": 5
+  }
+}

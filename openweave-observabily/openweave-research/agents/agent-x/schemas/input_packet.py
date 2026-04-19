@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TraceInput(BaseModel):
@@ -17,11 +18,37 @@ class TraceInput(BaseModel):
     trace_id: str = Field(..., min_length=1)
     github_pat: str = Field(..., min_length=1)
     repository: str = Field(..., min_length=3)
-    commit_id: str = Field(..., min_length=7)
+    commit_id: str = Field(..., min_length=1)
     filepath: str = Field(..., min_length=1)
     lineno: int = Field(..., gt=0)
     function: str = Field(..., min_length=1)
     error_context: dict[str, Any] = Field(..., min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_ingestion_shape(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+        code_location = normalized.get("code_location")
+        if isinstance(code_location, dict):
+            normalized.setdefault("filepath", code_location.get("filepath"))
+            normalized.setdefault("lineno", code_location.get("lineno"))
+            normalized.setdefault("function", code_location.get("function"))
+            normalized.pop("code_location", None)
+
+        repository = normalized.get("repository")
+        if isinstance(repository, str):
+            repo = repository.strip()
+            if repo.startswith("http://") or repo.startswith("https://"):
+                parsed = urlparse(repo)
+                if parsed.netloc.lower() == "github.com":
+                    parts = [part for part in parsed.path.split("/") if part]
+                    if len(parts) >= 2:
+                        normalized["repository"] = f"{parts[0]}/{parts[1]}"
+
+        return normalized
 
     @field_validator("repository")
     @classmethod
@@ -44,8 +71,6 @@ class TraceInput(BaseModel):
         commit = value.strip()
         if not commit:
             raise ValueError("commit_id must not be empty")
-        if len(commit) < 7:
-            raise ValueError("commit_id must be at least 7 characters long")
         return commit
 
     @field_validator("error_context")

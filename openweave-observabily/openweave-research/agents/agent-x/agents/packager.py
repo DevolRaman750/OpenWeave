@@ -114,7 +114,8 @@ class Packager:
             )
             llm_output = self._extract_message_content(response)
             llm_output = self._extract_json_text(llm_output)
-            return CompatibilityManifest.model_validate_json(llm_output)
+            acm = CompatibilityManifest.model_validate_json(llm_output)
+            return self._ensure_repomaster_query(acm)
         except ConfigurationError:
             logger.exception("LLM configuration is invalid for ACM generation.")
             raise
@@ -155,3 +156,49 @@ class Packager:
         if match:
             return match.group(1).strip()
         return raw_output.strip()
+
+    def _ensure_repomaster_query(self, acm: CompatibilityManifest) -> CompatibilityManifest:
+        repomaster_query = self._build_repomaster_query(acm)
+
+        existing_queries = [query for query in acm.search_intent.queries if query.strip()]
+        normalized_existing = {query.casefold() for query in existing_queries}
+        if repomaster_query.casefold() not in normalized_existing:
+            existing_queries = [repomaster_query, *existing_queries]
+        else:
+            existing_queries = [repomaster_query, *[q for q in existing_queries if q.casefold() != repomaster_query.casefold()]]
+
+        payload = acm.model_dump()
+        payload["search_intent"]["queries"] = existing_queries
+        payload["search_intent"]["repomaster_query"] = repomaster_query
+        return CompatibilityManifest.model_validate(payload)
+
+    def _build_repomaster_query(self, acm: CompatibilityManifest) -> str:
+        problem_domain = acm.problem_domain
+        codebase_context = acm.codebase_context
+        technical_constraints = acm.search_intent.technical_constraints
+
+        libraries = [library for library in technical_constraints.required_libraries if library.strip()]
+        dependency_hints = [dependency for dependency in codebase_context.dependencies if dependency.strip()]
+        all_libraries = libraries or dependency_hints
+
+        parts = [
+            "fix",
+            problem_domain.error_type,
+            problem_domain.symptom,
+            codebase_context.architecture_pattern,
+            problem_domain.failing_node,
+            f"runtime {technical_constraints.runtime}",
+        ]
+
+        if all_libraries:
+            parts.append("libraries " + " ".join(all_libraries[:4]))
+
+        query = " ".join(part.strip() for part in parts if part and part.strip())
+        query = re.sub(r"\s+", " ", query).strip()
+
+        tokens = query.split(" ")
+        max_tokens = 48
+        if len(tokens) > max_tokens:
+            query = " ".join(tokens[:max_tokens])
+
+        return query

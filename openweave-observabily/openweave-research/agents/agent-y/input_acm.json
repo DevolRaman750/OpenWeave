@@ -1,0 +1,34 @@
+{
+  "@context": "https://openweave.ai/schemas/acm/v1",
+  "@type": "CompatibilityManifest",
+  "problem_domain": {
+    "error_type": "TimeoutWarning",
+    "symptom": "Node execution exceeded 10.0 seconds",
+    "failing_node": "call_tool_node"
+  },
+  "codebase_context": {
+    "primary_slice": "def call_tool_node(state: AgentState):\n    \"\"\"\n    NODE: Tool Caller\n    ISSUE: No validation on tool name hallucination.\n    \"\"\"\n    # Line 16: Intentional vulnerability - if LLM says 'google_search', this crashes.\n    tool_to_call = state['messages'][-1].additional_kwargs.get(\"tool_calls\")[0]\n    \n    if tool_to_call['function']['name'] == \"web_search\":\n        print(\"Executing Search...\")\n        time.sleep(12) # Line 21: Intentional Latency Error\n        return {\"messages\": [HumanMessage(content=\"Results found.\")], \"loop_count\": state['loop_count'] + 1}\n    \n    # Line 24: This line causes a KeyError if 'web_search' isn't used.\n    raise KeyError(f\"Tool {tool_to_call['function']['name']} is not registered!\")",
+    "filepath": "target_agent.py",
+    "dependencies": [
+      "time",
+      "langchain_core.messages.HumanMessage"
+    ],
+    "architecture_pattern": "State Graph with Tool Calling"
+  },
+  "search_intent": {
+    "queries": [
+      "fix TimeoutWarning Node execution exceeded 10.0 seconds State Graph with Tool Calling call_tool_node runtime Python 3.x libraries langgraph langchain-core",
+      "fix timeout error in langgraph agent node",
+      "optimize long running tool execution python",
+      "handle TimeoutWarning in agent state machine"
+    ],
+    "repomaster_query": "fix TimeoutWarning Node execution exceeded 10.0 seconds State Graph with Tool Calling call_tool_node runtime Python 3.x libraries langgraph langchain-core",
+    "technical_constraints": {
+      "runtime": "Python 3.x",
+      "required_libraries": [
+        "langgraph",
+        "langchain-core"
+      ]
+    }
+  }
+}

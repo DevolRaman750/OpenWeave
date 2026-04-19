@@ -50,6 +50,7 @@ class TechnicalConstraints(StrictSchema):
 
 class SearchIntent(StrictSchema):
     queries: list[str] = Field(..., min_length=1)
+    repomaster_query: str | None = None
     technical_constraints: TechnicalConstraints
 
     @field_validator("queries")
@@ -57,6 +58,15 @@ class SearchIntent(StrictSchema):
     def validate_queries(cls, value: list[str]) -> list[str]:
         if any(not query.strip() for query in value):
             raise ValueError("queries must not contain empty values")
+        return value
+
+    @field_validator("repomaster_query")
+    @classmethod
+    def validate_repomaster_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if not value.strip():
+            raise ValueError("repomaster_query must not be empty")
         return value
 
 

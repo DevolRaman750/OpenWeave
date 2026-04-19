@@ -1,0 +1,16 @@
+{
+  "trace_id": "err_002_latency",
+  "github_pat": "ghp_mock_key_for_test",
+  "repository": "your-username/test-repo",
+  "commit_id": "main",
+  "code_location": {
+    "filepath": "target_agent.py",
+    "lineno": 21,
+    "function": "call_tool_node"
+  },
+  "error_context": {
+    "type": "TimeoutWarning",
+    "message": "Node execution exceeded 10.0 seconds",
+    "duration_seconds": 12.5
+  }
+}

@@ -77,6 +77,8 @@ class Brain:
                             "You are Agent-X's reasoning engine. "
                             "Decide whether the root cause of the reported error can be "
                             "determined entirely from the provided code snippet. "
+                            "Don't just find the error. Identify the Category of Underperformance. Is it a Schema Gap, a Logic Loop, or State Drift?"
+                            "Ensure the agent maps the exact library from the imports"
                             "Answer with exactly one of these formats:\n"
                             "YES: <brief reason>\n"
                             "NO: <brief reason>\n"
