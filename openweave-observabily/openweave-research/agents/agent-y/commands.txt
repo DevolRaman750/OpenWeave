@@ -1,0 +1,3 @@
+python launcher.py --mode backend --backend-mode unified
+
+--backend-mode deepsearch

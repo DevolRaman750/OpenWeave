@@ -64,6 +64,31 @@ class BasicConversableAgent(ConversableAgent):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def _log_llm_usage(self, response) -> None:
+        usage = getattr(response, "usage", None)
+        choices = getattr(response, "choices", []) or []
+        finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
+        completion_tokens = getattr(usage, "completion_tokens", None) if usage is not None else None
+        total_tokens = getattr(usage, "total_tokens", None) if usage is not None else None
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            total_tokens = usage.get("total_tokens")
+
+        max_tokens = None
+        if isinstance(getattr(self, "llm_config", None), dict):
+            max_tokens = self.llm_config.get("max_tokens")
+
+        print(
+            "[llm-usage] "
+            f"agent={getattr(self, 'name', type(self).__name__)} "
+            f"prompt={prompt_tokens} completion={completion_tokens} "
+            f"total={total_tokens} max_tokens={max_tokens} "
+            f"finish_reason={finish_reason}"
+        )
+
     def _generate_oai_reply_from_client(self, llm_client, messages, cache) -> Optional[Union[str, dict[str, Any]]]:
         # unroll tool_responses
         all_messages = []
@@ -84,6 +109,7 @@ class BasicConversableAgent(ConversableAgent):
             cache=cache,
             agent=self,
         )
+        self._log_llm_usage(response)
         extracted_response = llm_client.extract_text_or_completion_object(response)[0]
 
         if extracted_response is None:

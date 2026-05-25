@@ -114,6 +114,9 @@ class AutogenDeepSearchAgent:
             if isinstance(runtime_timeout, (int, float)) and runtime_timeout > 0:
                 self.llm_config["timeout"] = int(runtime_timeout)
 
+        self.max_turns = int(os.getenv("DEEPSEARCH_MAX_TURNS", self.code_execution_config.get("max_turns", 30)))
+        self.deepsearch_timeout = int(os.getenv("DEEPSEARCH_TIMEOUT", self.code_execution_config.get("deepsearch_timeout", 900)))
+
         # Disable hidden SDK retries unless user explicitly overrides via environment.
         if isinstance(self.llm_config, dict) and "max_retries" not in self.llm_config:
             env_max_retries = os.getenv("OPENAI_CLIENT_MAX_RETRIES")
@@ -280,10 +283,30 @@ class AutogenDeepSearchAgent:
         
         # Directly use client's create method without passing additional API parameters
         response = client.create(messages=messages_list)
+        self._print_llm_usage(response, label="tool-summary")
             
         summary = response.choices[0].message.content
         
         return summary
+
+    def _print_llm_usage(self, response, label: str = "deepsearch") -> None:
+        usage = getattr(response, "usage", None)
+        choices = getattr(response, "choices", []) or []
+        finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
+        completion_tokens = getattr(usage, "completion_tokens", None) if usage is not None else None
+        total_tokens = getattr(usage, "total_tokens", None) if usage is not None else None
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            total_tokens = usage.get("total_tokens")
+
+        max_tokens = self.llm_config.get("max_tokens") if isinstance(self.llm_config, dict) else None
+        print(
+            f"[llm-usage] label={label} prompt={prompt_tokens} "
+            f"completion={completion_tokens} total={total_tokens} "
+            f"max_tokens={max_tokens} finish_reason={finish_reason}"
+        )
 
     def _is_retryable_llm_error(self, error: Exception) -> bool:
         if isinstance(error, TimeoutError):
@@ -339,6 +362,7 @@ class AutogenDeepSearchAgent:
         attempt: int,
         max_attempts: int,
         attempt_timeout: int,
+        request_timeout: int,
     ):
         """Run chat coroutine while printing periodic heartbeat logs during long waits."""
         heartbeat_seconds = int(os.getenv("DEEPSEARCH_HEARTBEAT_SECONDS", "15"))
@@ -357,6 +381,8 @@ class AutogenDeepSearchAgent:
                 chat_task.cancel()
                 try:
                     await chat_task
+                except asyncio.CancelledError:
+                    pass
                 except Exception:
                     pass
                 raise TimeoutError(
@@ -374,10 +400,11 @@ class AutogenDeepSearchAgent:
             print(
                 f"[deepsearch] waiting for model reply "
                 f"attempt {attempt}/{max_attempts}, elapsed={elapsed}s, "
-                f"request_timeout={attempt_timeout}s, model={model}, base_url={base_url}"
+                f"request_timeout={request_timeout}s, deepsearch_timeout={attempt_timeout}s, "
+                f"model={model}, base_url={base_url}"
             )
     
-    async def deep_search(self, query: str) -> str:
+    async def deep_search(self, query: str, summary_prompt: str | None = None) -> str:
         """
         Execute deep search and return results
         
@@ -392,6 +419,8 @@ class AutogenDeepSearchAgent:
         
         self.original_query = query
         
+        result_summary_prompt = summary_prompt or DEEP_SEARCH_RESULT_REPORT_PROMPT
+
         initial_message = dedent(f"""
         I need you to help me research the following question in depth:
         
@@ -401,36 +430,38 @@ class AutogenDeepSearchAgent:
         self.agent_tool_library.update_chat_history({"original_query": self.original_query})
         self.researcher.update_system_message(get_researcher_system_message())
         
-        max_attempts = int(os.getenv("DEEPSEARCH_RETRY_ATTEMPTS", "2"))
+        max_attempts = int(os.getenv("DEEPSEARCH_RETRY_ATTEMPTS", "1"))
         max_attempts = max(1, max_attempts)
-        base_timeout = 120
+        llm_timeout = 240
         if isinstance(self.llm_config, dict):
             timeout_from_cfg = self.llm_config.get("timeout")
             if isinstance(timeout_from_cfg, (int, float)) and timeout_from_cfg > 0:
-                base_timeout = int(timeout_from_cfg)
+                llm_timeout = int(timeout_from_cfg)
 
         last_error: Exception | None = None
         for attempt in range(1, max_attempts + 1):
-            attempt_timeout = min(base_timeout * (2 ** (attempt - 1)), 420)
-            self._set_llm_timeout(int(attempt_timeout))
+            attempt_timeout = self.deepsearch_timeout
+            self._set_llm_timeout(int(llm_timeout))
             print(
                 f"[deepsearch] starting attempt {attempt}/{max_attempts} "
-                f"with request_timeout={attempt_timeout}s, max_turns=30"
+                f"with request_timeout={llm_timeout}s, deepsearch_timeout={attempt_timeout}s, "
+                f"max_turns={self.max_turns}"
             )
             try:
                 chat_result = await self._run_chat_with_heartbeat(
                     self.executor.a_initiate_chat(
                         self.researcher,
                         message=initial_message,
-                        max_turns=30,
+                        max_turns=self.max_turns,
                         summary_method="reflection_with_llm", # Supported strings are "last_msg" and "reflection_with_llm":
                         summary_args={
-                            'summary_prompt': DEEP_SEARCH_RESULT_REPORT_PROMPT
+                            'summary_prompt': result_summary_prompt
                         }
                     ),
                     attempt=attempt,
                     max_attempts=max_attempts,
                     attempt_timeout=int(attempt_timeout),
+                    request_timeout=int(llm_timeout),
                 )
                 break
             except Exception as e:
@@ -456,10 +487,11 @@ class AutogenDeepSearchAgent:
 
             error_context = {
                 "query": text_fingerprint(query),
-                "max_turns": 30,
+                "max_turns": self.max_turns,
                 "retry": {
                     "max_attempts": max_attempts,
                     "final_timeout": self.llm_config.get("timeout") if isinstance(self.llm_config, dict) else None,
+                    "deepsearch_timeout": self.deepsearch_timeout,
                     "retryable": self._is_retryable_llm_error(e),
                 },
                 "tool_call_count": self.current_tool_call_count,
@@ -513,6 +545,38 @@ class AutogenDeepSearchAgent:
             final_answer = final_content
         
         return final_answer
+
+    def get_partial_research_text(self) -> str:
+        """Return best-effort text from the current deepsearch conversation."""
+        chunks: list[str] = []
+        seen_ids: set[int] = set()
+
+        for agent in (self.researcher, self.executor):
+            chat_messages = getattr(agent, "chat_messages", {})
+            if not isinstance(chat_messages, dict):
+                continue
+
+            for messages in chat_messages.values():
+                if not isinstance(messages, list):
+                    continue
+                for message in messages:
+                    if not isinstance(message, dict) or id(message) in seen_ids:
+                        continue
+                    seen_ids.add(id(message))
+
+                    content = message.get("content")
+                    if isinstance(content, str) and content.strip():
+                        chunks.append(content.strip())
+
+                    for key in ("tool_calls", "tool_responses"):
+                        value = message.get(key)
+                        if value:
+                            try:
+                                chunks.append(json.dumps(value, ensure_ascii=False))
+                            except Exception:
+                                chunks.append(str(value))
+
+        return "\n\n".join(chunks)[-20000:]
     
     
     def web_agent_answer(self, query: Annotated[str, "The initial search query"]) -> str:

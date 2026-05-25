@@ -28,6 +28,21 @@ import subprocess
 from pathlib import Path
 
 
+def configure_stdio_encoding():
+    """Keep launcher status output from crashing on Windows cp1252 consoles."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+configure_stdio_encoding()
+
+
 from configs.mode_config import ModeConfigManager, create_argument_parser, print_config_info
 try:
     from src.frontend.terminal_show import (

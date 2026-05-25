@@ -30,7 +30,7 @@ class RunConfig:
     work_dir: str = ""  # Will be set to absolute path in __post_init__
     log_level: str = "INFO"
     use_docker: bool = False
-    timeout: int = 120
+    timeout: int = 240
     
     def __post_init__(self):
         """Post-initialization processing, set absolute path"""
@@ -63,8 +63,9 @@ class BackendConfig(RunConfig):
     backend_mode: str = "deepsearch"  # deepsearch, general_assistant, repository_agent
     api_type: str = "nvidia"  # nvidia, basic, azure_openai, openai, claude
     temperature: float = 0.1
-    max_tokens: int = 4000
+    max_tokens: int = 8000
     max_turns: int = 30
+    deepsearch_timeout: int = 900
 
 @dataclass
 class DeepSearchConfig(BackendConfig):
@@ -155,7 +156,8 @@ class ModeConfigManager:
         return get_llm_config(
             api_type=api_type,
             temperature=temperature,
-            timeout=self.config.timeout if self.config else 120
+            timeout=self.config.timeout if self.config else 240,
+            max_tokens=getattr(self.config, "max_tokens", 8000)
         )
     
     def get_execution_config(self) -> Dict[str, Any]:
@@ -166,7 +168,9 @@ class ModeConfigManager:
         return {
             "work_dir": self.config.work_dir,
             "use_docker": self.config.use_docker,
-            "timeout": self.config.timeout
+            "timeout": self.config.timeout,
+            "max_turns": getattr(self.config, "max_turns", 30),
+            "deepsearch_timeout": getattr(self.config, "deepsearch_timeout", 900)
         }
     
     @classmethod
@@ -184,7 +188,7 @@ class ModeConfigManager:
         
         # Backend-specific parameters  
         backend_params = base_params + [
-            'api_type', 'temperature', 'max_tokens', 'max_turns'
+            'api_type', 'temperature', 'max_tokens', 'max_turns', 'deepsearch_timeout'
         ]
         
         # Filter parameters based on mode
@@ -253,8 +257,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--timeout',
         type=int,
-        default=120,
-        help='Request timeout in seconds (default: 120)'
+        default=240,
+        help='Request timeout in seconds (default: 240)'
     )
     
     # Frontend mode specific parameters
@@ -303,8 +307,15 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--max-tokens',
         type=int,
-        default=4000,
-        help='Maximum token count (default: 4000)'
+        default=8000,
+        help='Maximum output token count (default: 8000)'
+    )
+
+    parser.add_argument(
+        '--deepsearch-timeout',
+        type=int,
+        default=900,
+        help='Whole deepsearch wall-clock timeout in seconds (default: 900)'
     )
     
     # Configuration check options
