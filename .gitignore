@@ -31,3 +31,14 @@ openweave-observabily/openweave_core/adaptive_baseline/Adaptive-Multi-Dimensiona
 langfuse/
 graphify-out/cache/
 OpenWeave-SDK/
+
+# Generated outputs (may contain API key references)
+scripts/out/
+openweave-observabily/scripts/out/
+openweave_reports/
+.openweave_observer_state.json
+
+# Local tooling config
+.mcp.json
+.playwright-mcp/
+**/.deepeval/

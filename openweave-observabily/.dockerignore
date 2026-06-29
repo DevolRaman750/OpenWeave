@@ -1,0 +1,14 @@
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+.git/
+.deepeval/
+langfuse/
+frontend/
+openweave-research/
+scripts/out/
+openweave_reports/
+.openweave_observer_state.json
+*.log
+.env

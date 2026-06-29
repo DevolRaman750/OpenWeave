@@ -1,0 +1,63 @@
+# OpenWeave production services.
+#
+# Brings up two roles from one image:
+#   * sidecar  — on-demand POST /analyze for the UI / ad-hoc analysis
+#   * observer — continuously watches a Langfuse project for real agent traces
+#
+# Secrets come from the environment (or a sibling .env file). Never bake keys
+# into the image. Point LANGFUSE_* at your Langfuse (cloud or self-hosted).
+#
+#   docker compose -f docker-compose.openweave.yml up -d --build
+services:
+  sidecar:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: openweave-core:latest
+    command: ["uvicorn", "openweave_core.sidecar.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      OPENWEAVE_EMBED_TIMEOUT: ${OPENWEAVE_EMBED_TIMEOUT:-10}
+      OPENWEAVE_DETECTOR_TIMEOUT: ${OPENWEAVE_DETECTOR_TIMEOUT:-20}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  observer:
+    image: openweave-core:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "openweave_core.observer"]
+    depends_on:
+      - sidecar
+    environment:
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      # Observer tunables (safe defaults; eval OFF to avoid per-trace LLM cost).
+      OPENWEAVE_OBSERVE_INTERVAL: ${OPENWEAVE_OBSERVE_INTERVAL:-15}
+      OPENWEAVE_OBSERVE_CONCURRENCY: ${OPENWEAVE_OBSERVE_CONCURRENCY:-4}
+      OPENWEAVE_OBSERVE_RUN_EVAL: ${OPENWEAVE_OBSERVE_RUN_EVAL:-false}
+      OPENWEAVE_OBSERVE_SETTLE: ${OPENWEAVE_OBSERVE_SETTLE:-30}
+      OPENWEAVE_OBSERVE_LOOKBACK: ${OPENWEAVE_OBSERVE_LOOKBACK:-3600}
+      OPENWEAVE_OBSERVE_ENVIRONMENT: ${OPENWEAVE_OBSERVE_ENVIRONMENT:-}
+      OPENWEAVE_OBSERVE_TAGS: ${OPENWEAVE_OBSERVE_TAGS:-}
+    volumes:
+      - openweave-data:/data
+    restart: unless-stopped
+
+volumes:
+  openweave-data:

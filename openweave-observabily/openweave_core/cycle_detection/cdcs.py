@@ -23,6 +23,13 @@ from openweave_core.models.span import ParsedSpan
 SpanLike = Union[ParsedSpan, dict[str, Any]]
 SubseqKey = tuple[str, ...]  # ordered op-name signature, hashable
 
+# Max repeated-pattern length we enumerate. Redundant agent loops are short
+# motifs (plan->act->observe etc.); enumerating windows up to n makes
+# _build_frequency_map O(n^3) (the scaling cliff). Capping to a small window
+# makes it O(n * W) ~ linear, and any longer repeated block is still detected
+# via its length<=W sub-windows, so recall is preserved. See scripts/scale_sweep.py.
+MAX_WINDOW_SIZE: int = 10
+
 
 # ---------------------------------------------------------------------------
 # Output type
@@ -57,10 +64,12 @@ def _op_name(span: SpanLike) -> str:
 
 def _build_frequency_map(
     ct: list[SpanLike],
+    max_window: int = MAX_WINDOW_SIZE,
 ) -> tuple[Counter[SubseqKey], dict[SubseqKey, int]]:
-    """Sliding window (m > 2) over CT -> (frequency Counter, first-seen index map).
+    """Sliding window (3 <= m <= max_window) over CT -> (frequency, first-seen index).
 
-    O(n^2) subsequences total; keys pre-built as op-name tuples for O(1) hashing.
+    Window size is capped at ``max_window`` so the cost is O(n * max_window)
+    (~linear) instead of O(n^3); keys pre-built as op-name tuples for O(1) hashing.
     """
     n = len(ct)
     ops: list[str] = [_op_name(s) for s in ct]  # materialise once — O(n)
@@ -68,7 +77,8 @@ def _build_frequency_map(
     freq: Counter[SubseqKey] = Counter()
     first_seen: dict[SubseqKey, int] = {}
 
-    for m in range(3, n + 1):          # window sizes: 3 ... n
+    upper = min(n, max_window)
+    for m in range(3, upper + 1):      # window sizes: 3 ... min(n, max_window)
         for i in range(n - m + 1):     # start positions: 0 ... n-m
             key: SubseqKey = tuple(ops[i : i + m])
             freq[key] += 1

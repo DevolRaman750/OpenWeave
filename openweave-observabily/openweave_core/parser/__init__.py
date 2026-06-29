@@ -1,4 +1,4 @@
-__all__ = ["parse_langfuse_trace"]
+__all__ = ["parse_langfuse_trace", "parse_langfuse_trace_full"]
 
 
 def __getattr__(name):
@@ -6,4 +6,8 @@ def __getattr__(name):
         from .trace_fetcher import parse_langfuse_trace
 
         return parse_langfuse_trace
+    if name == "parse_langfuse_trace_full":
+        from .trace_fetcher import parse_langfuse_trace_full
+
+        return parse_langfuse_trace_full
     raise AttributeError(name)
